@@ -16,6 +16,14 @@ app.use(cors({
 }));
 app.use(express.json());
 
+// Middleware para deshabilitar caché en todas las respuestas
+app.use((req, res, next) => {
+  res.set('Cache-Control', 'no-store, no-cache, must-revalidate, private');
+  res.set('Pragma', 'no-cache');
+  res.set('Expires', '0');
+  next();
+});
+
 console.log('✅ Módulos cargados correctamente');
 
 // ✅ Configuración de MySQL con VARIABLES DE ENTORNO (para AWS RDS)
@@ -77,6 +85,7 @@ async function initDB() {
 }
 
 // ==================== RUTAS API ====================
+// ⚠️ IMPORTANTE: Las rutas específicas DEBEN ir ANTES de las rutas con parámetros (:id)
 
 // Ruta de prueba
 app.get('/', (req, res) => {
@@ -87,6 +96,70 @@ app.get('/', (req, res) => {
     features: ['CRUD eventos', 'Notificaciones', 'ESP32 support']
   });
 });
+
+// ========== RUTAS ESPECÍFICAS (van primero) ==========
+
+// Eventos del día actual
+app.get('/api/eventos/dia/hoy', async (req, res) => {
+  try {
+    const [eventos] = await pool.query(`
+      SELECT * FROM eventos 
+      WHERE DATE(fecha_hora) = CURDATE()
+      ORDER BY fecha_hora ASC
+    `);
+    res.json(eventos);
+  } catch (error) {
+    console.error('Error obteniendo eventos del día:', error);
+    res.status(500).json({ error: error.message });
+  }
+});
+
+// Eventos pendientes
+app.get('/api/eventos/pendientes', async (req, res) => {
+  try {
+    const [eventos] = await pool.query(`
+      SELECT * FROM eventos 
+      WHERE completado = FALSE AND fecha_hora >= NOW()
+      ORDER BY fecha_hora ASC
+    `);
+    res.json(eventos);
+  } catch (error) {
+    console.error('Error obteniendo eventos pendientes:', error);
+    res.status(500).json({ error: error.message });
+  }
+});
+
+// Endpoint optimizado para ESP32 (DEBE IR ANTES de /api/eventos/:id)
+app.get('/api/eventos/esp32', async (req, res) => {
+  try {
+    const [eventos] = await pool.query(`
+      SELECT 
+        titulo,
+        TIME_FORMAT(fecha_hora, '%H:%i') as hora,
+        prioridad
+      FROM eventos 
+      WHERE DATE(fecha_hora) = CURDATE() AND completado = FALSE
+      ORDER BY fecha_hora ASC
+      LIMIT 10
+    `);
+    
+    const eventosSimplificados = eventos.map(e => ({
+      t: e.titulo.substring(0, 30),
+      h: e.hora,
+      p: e.prioridad[0].toUpperCase()
+    }));
+
+    res.json({
+      count: eventos.length,
+      eventos: eventosSimplificados
+    });
+  } catch (error) {
+    console.error('Error obteniendo eventos para ESP32:', error);
+    res.status(500).json({ error: error.message });
+  }
+});
+
+// ========== RUTAS GENERALES ==========
 
 // Obtener todos los eventos
 app.get('/api/eventos', async (req, res) => {
@@ -123,7 +196,9 @@ app.post('/api/eventos', async (req, res) => {
   }
 });
 
-// Obtener un evento específico
+// ========== RUTAS CON PARÁMETROS (van al final) ==========
+
+// Obtener un evento específico (SOLO UNA VEZ, al final)
 app.get('/api/eventos/:id', async (req, res) => {
   try {
     const [eventos] = await pool.query(
@@ -205,66 +280,6 @@ app.delete('/api/eventos/:id', async (req, res) => {
   }
 });
 
-// Eventos del día actual
-app.get('/api/eventos/dia/hoy', async (req, res) => {
-  try {
-    const [eventos] = await pool.query(`
-      SELECT * FROM eventos 
-      WHERE DATE(fecha_hora) = CURDATE()
-      ORDER BY fecha_hora ASC
-    `);
-    res.json(eventos);
-  } catch (error) {
-    console.error('Error obteniendo eventos del día:', error);
-    res.status(500).json({ error: error.message });
-  }
-});
-
-// Eventos pendientes
-app.get('/api/eventos/pendientes', async (req, res) => {
-  try {
-    const [eventos] = await pool.query(`
-      SELECT * FROM eventos 
-      WHERE completado = FALSE AND fecha_hora >= NOW()
-      ORDER BY fecha_hora ASC
-    `);
-    res.json(eventos);
-  } catch (error) {
-    console.error('Error obteniendo eventos pendientes:', error);
-    res.status(500).json({ error: error.message });
-  }
-});
-
-// Endpoint optimizado para ESP32
-app.get('/api/eventos/esp32', async (req, res) => {
-  try {
-    const [eventos] = await pool.query(`
-      SELECT 
-        titulo,
-        TIME_FORMAT(fecha_hora, '%H:%i') as hora,
-        prioridad
-      FROM eventos 
-      WHERE DATE(fecha_hora) = CURDATE() AND completado = FALSE
-      ORDER BY fecha_hora ASC
-      LIMIT 10
-    `);
-    
-    const eventosSimplificados = eventos.map(e => ({
-      t: e.titulo.substring(0, 30),
-      h: e.hora,
-      p: e.prioridad[0].toUpperCase()
-    }));
-
-    res.json({
-      count: eventos.length,
-      eventos: eventosSimplificados
-    });
-  } catch (error) {
-    console.error('Error obteniendo eventos para ESP32:', error);
-    res.status(500).json({ error: error.message });
-  }
-});
-
 // Obtener notificaciones pendientes (eventos próximos)
 app.get('/api/notificaciones', async (req, res) => {
   try {
@@ -284,24 +299,6 @@ app.get('/api/notificaciones', async (req, res) => {
     res.json(notificaciones);
   } catch (error) {
     console.error('Error obteniendo notificaciones:', error);
-    res.status(500).json({ error: error.message });
-  }
-});
-
-app.get('/api/eventos/:id', async (req, res) => {
-  try {
-    const [eventos] = await pool.query(
-      'SELECT * FROM eventos WHERE id = ?',
-      [req.params.id]
-    );
-
-    if (eventos.length === 0) {
-      return res.status(404).json({ error: 'Evento no encontrado' });
-    }
-
-    res.json(eventos[0]);
-  } catch (error) {
-    console.error('Error obteniendo evento:', error);
     res.status(500).json({ error: error.message });
   }
 });
