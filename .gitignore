@@ -1,0 +1,24 @@
+# Node modules
+node_modules/
+*/node_modules/
+
+# Build outputs
+dist/
+build/
+*.tar
+*.tar.gz
+
+# Environment variables
+.env
+.env.local
+
+# Docker
+mysql_data/
+
+# IDE
+.vscode/
+.idea/
+
+# OS
+.DS_Store
+Thumbs.db
