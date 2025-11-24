@@ -288,6 +288,24 @@ app.get('/api/notificaciones', async (req, res) => {
   }
 });
 
+app.get('/api/eventos/:id', async (req, res) => {
+  try {
+    const [eventos] = await pool.query(
+      'SELECT * FROM eventos WHERE id = ?',
+      [req.params.id]
+    );
+
+    if (eventos.length === 0) {
+      return res.status(404).json({ error: 'Evento no encontrado' });
+    }
+
+    res.json(eventos[0]);
+  } catch (error) {
+    console.error('Error obteniendo evento:', error);
+    res.status(500).json({ error: error.message });
+  }
+});
+
 // ==================== SISTEMA DE NOTIFICACIONES ====================
 
 // Sistema de notificaciones y recordatorios - Ejecuta cada minuto
